@@ -3,7 +3,13 @@
 import { TrendingUp, DollarSign, Info, Wallet } from "lucide-react";
 import { CartesianGrid, Line, LineChart, XAxis } from "recharts";
 import { useState, useEffect } from "react";
-import { useAccount, useBalance } from "wagmi";
+import {
+  useAccount,
+  useBalance,
+  usePublicClient,
+  useWalletClient,
+  useWriteContract,
+} from "wagmi";
 import { formatEther } from "viem";
 
 import {
@@ -22,6 +28,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Image from "next/image";
+import deployments from "@/contracts/deployments";
+import CRDVault from "@/contracts/abi/CRDVault.abi";
+import NoteIssuerAbi from "@/contracts/abi/NoteIssuer.abi";
+import PoolAbi from "@/contracts/abi/Pool.abi";
+import { toast } from "@/lib/utils";
 
 const chartData = [
   { day: "26 Aug", apy: 14.1, volume: 95 },
@@ -170,6 +181,8 @@ const DepositCard: React.FC<DepositCardProps> = ({
   isConnected,
   balance,
 }) => {
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
   // Validation for insufficient funds
   const hasInsufficientFunds = () => {
     if (!depositAmount || !isConnected) return false;
@@ -186,6 +199,28 @@ const DepositCard: React.FC<DepositCardProps> = ({
     // Prevent negative values
     if (value === "" || parseFloat(value) >= 0) {
       setDepositAmount(value);
+    }
+  };
+
+  const handleDeposit = async () => {
+    if (!walletClient || !publicClient) return;
+    const txHash = await walletClient.writeContract({
+      address: deployments.pool,
+      abi: PoolAbi,
+      functionName: "deposit",
+      args: [],
+    });
+
+    if (!txHash) toast.error("Failed to deposit");
+
+    const receipt = await publicClient.waitForTransactionReceipt({
+      hash: txHash,
+    });
+
+    if (receipt.status === "success") {
+      toast.success("Deposit successful");
+    } else {
+      toast.error("Failed to deposit");
     }
   };
 
@@ -280,6 +315,7 @@ const DepositCard: React.FC<DepositCardProps> = ({
                 parseFloat(depositAmount) <= 0 ||
                 hasInsufficientFunds()
               }
+              onClick={handleDeposit}
             >
               Deposit ETH
             </Button>
