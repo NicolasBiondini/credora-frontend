@@ -8,9 +8,8 @@ import {
   useBalance,
   usePublicClient,
   useWalletClient,
-  useWriteContract,
 } from "wagmi";
-import { formatEther } from "viem";
+import { formatEther, parseEther } from "viem";
 
 import {
   Card,
@@ -29,8 +28,6 @@ import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Image from "next/image";
 import deployments from "@/contracts/deployments";
-import CRDVault from "@/contracts/abi/CRDVault.abi";
-import NoteIssuerAbi from "@/contracts/abi/NoteIssuer.abi";
 import PoolAbi from "@/contracts/abi/Pool.abi";
 import { toast } from "@/lib/utils";
 
@@ -209,9 +206,13 @@ const DepositCard: React.FC<DepositCardProps> = ({
       abi: PoolAbi,
       functionName: "deposit",
       args: [],
+      value: parseEther(depositAmount),
     });
 
-    if (!txHash) toast.error("Failed to deposit");
+    if (!txHash) {
+      console.error("Failed to deposit, no tx hash");
+      toast.error("Failed to deposit");
+    }
 
     const receipt = await publicClient.waitForTransactionReceipt({
       hash: txHash,
@@ -220,6 +221,7 @@ const DepositCard: React.FC<DepositCardProps> = ({
     if (receipt.status === "success") {
       toast.success("Deposit successful");
     } else {
+      console.error("Failed to deposit, tx failed", receipt);
       toast.error("Failed to deposit");
     }
   };

@@ -9,14 +9,29 @@ import {
   DollarSign,
   Calculator,
   Shield,
+  CheckCircle,
+  AlertCircle,
 } from "lucide-react";
 import { useState, useEffect } from "react";
-import { useAccount } from "wagmi";
+import {
+  useAccount,
+  usePublicClient,
+  useWalletClient,
+  useReadContract,
+} from "wagmi";
+import { isAddress, parseEther } from "viem";
 import { useRouter } from "next/navigation";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
+import { Slider } from "@/components/ui/slider";
+import deployments from "@/contracts/deployments";
+import NoteIssuerAbi from "@/contracts/abi/NoteIssuer.abi";
+import { SAMPLE_PROOF } from "@/lib/sample-proof";
+import { toast } from "@/lib/utils";
+import PoolAbi from "@/contracts/abi/Pool.abi";
+import CRDVaultAbi from "@/contracts/abi/CRDVault.abi";
 
 // Utility functions
 const ETH_PRICE_USD = 4400; // Hardcoded ETH price
@@ -49,6 +64,16 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
   creditScore,
 }) => {
   const router = useRouter();
+  const { address } = useAccount();
+  const { data: walletClient } = useWalletClient();
+  const publicClient = usePublicClient();
+  const [creditorAddress, setCreditorAddress] = useState("");
+  const [borrowAmount, setBorrowAmount] = useState<number[]>([0]); // Default to 0 USD worth
+  const { data: crdVaultTotalSupply } = useReadContract({
+    address: deployments.crdVault,
+    abi: CRDVaultAbi,
+    functionName: "totalSupply",
+  });
 
   // Function to get maximum borrow amount based on credit score
   const getMaxBorrowAmount = (score: number) => {
@@ -98,14 +123,86 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
     );
     return monthlyPayment * months;
   };
+  console.log("crdVaultTotalSupply", crdVaultTotalSupply);
+  const maxBorrowableAmount = Math.min(
+    getMaxBorrowAmount(creditScore),
+    Number(crdVaultTotalSupply || BigInt(0))
+  );
 
-  const maxAmount = getMaxBorrowAmount(creditScore);
+  // Update borrow amount if it exceeds the new maximum
+  useEffect(() => {
+    if (borrowAmount[0] > maxBorrowableAmount && maxBorrowableAmount > 0) {
+      setBorrowAmount([maxBorrowableAmount]);
+    }
+  }, [maxBorrowableAmount, borrowAmount]);
+
+  const selectedAmount = borrowAmount[0]; // Current selected amount from slider
   const annualRate = getAnnualInterestRate(creditScore);
   const collateralPercentage = getCollateralPercentage();
-  const requiredCollateral = getRequiredCollateral(maxAmount);
-  const monthlyPayment = calculateMonthlyPayment(maxAmount, annualRate);
-  const totalPayment = calculateTotalPayment(maxAmount, annualRate);
-  const interestAmount = totalPayment - maxAmount;
+  const requiredCollateral = getRequiredCollateral(selectedAmount);
+  const monthlyPayment = calculateMonthlyPayment(selectedAmount, annualRate);
+  const totalPayment = calculateTotalPayment(selectedAmount, annualRate);
+  const interestAmount = totalPayment - selectedAmount;
+
+  // Validate creditor address
+
+  // Handle borrow functionality
+  const handleBorrow = async () => {
+    if (!walletClient || !publicClient || !address) {
+      toast.error("Wallet not connected");
+      return;
+    }
+
+    if (!creditorAddress || !isAddress(creditorAddress)) {
+      toast.error("Please enter a valid creditor address");
+      return;
+    }
+
+    try {
+      // Calculate amounts in wei - using selected amount instead of max
+      const loanAmountWei = parseEther(selectedAmount.toString());
+      const advanceAmountWei = parseEther(requiredCollateral.toString());
+
+      // Call createNote function with hardcoded proof
+      const txHash = await walletClient.writeContract({
+        address: deployments.noteIssuer,
+        abi: NoteIssuerAbi,
+        functionName: "createNote",
+        args: [
+          loanAmountWei, // amount
+          advanceAmountWei, // advanceAmount
+          SAMPLE_PROOF.pA, // _pA
+          SAMPLE_PROOF.pB, // _pB
+          SAMPLE_PROOF.pC, // _pC
+          SAMPLE_PROOF.pubSignals, // _pubSignals
+          creditorAddress, // creditor address
+        ],
+        value: advanceAmountWei, // Send the advance amount as ETH
+      });
+
+      if (!txHash) {
+        console.error("Failed to create borrow transaction");
+        toast.error("Failed to create borrow transaction");
+        return;
+      }
+
+      // Wait for transaction confirmation
+      const receipt = await publicClient.waitForTransactionReceipt({
+        hash: txHash,
+      });
+
+      if (receipt.status === "success") {
+        toast.success(`Borrow transaction successful! Note created.`);
+        console.log("Borrow successful, transaction hash:", txHash);
+      } else {
+        console.error("Borrow transaction failed", receipt);
+        toast.error("Borrow transaction failed");
+      }
+    } catch (error) {
+      console.error("Error during borrow:", error);
+      toast.error("Failed to borrow. Please try again.");
+    }
+  };
 
   return (
     <Card className="w-full h-full bg-white rounded-[20px] border border-gray-200">
@@ -171,17 +268,17 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
         ) : (
           // Verified State - Show Borrowing Options
           <div className="space-y-6">
-            {/* Maximum Borrow Amount */}
+            {/* Available Borrow Amount */}
             <div className="flex justify-between items-center p-4 bg-blue-50 rounded-lg">
               <div className="flex items-center gap-2">
                 <DollarSign className="w-5 h-5 text-blue-600" />
                 <span className="text-gray-600 font-medium text-sm">
-                  Maximum Borrow Amount:
+                  Available Borrow Amount:
                 </span>
               </div>
               <span className="font-semibold text-gray-900 text-sm">
-                ${(maxAmount / ETH_PRICE_USD).toFixed(4)} CRD ($
-                {maxAmount.toLocaleString()})
+                ${(selectedAmount / ETH_PRICE_USD).toFixed(4)} CRD ($
+                {selectedAmount.toLocaleString()})
               </span>
             </div>
 
@@ -194,9 +291,95 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
                 </span>
               </div>
               <span className="font-semibold text-gray-900 text-sm">
-                ${requiredCollateral.toFixed(2)} (
-                {(requiredCollateral / ETH_PRICE_USD).toFixed(4)} ETH)
+                {selectedAmount > 0
+                  ? `$${requiredCollateral.toFixed(2)} (${(
+                      requiredCollateral / ETH_PRICE_USD
+                    ).toFixed(4)} ETH)`
+                  : "$0.00 (0.0000 ETH)"}
               </span>
+            </div>
+
+            {/* Creditor Address Input */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <UserCheck className="w-4 h-4" />
+                <span>Creditor Address</span>
+              </div>
+              <div className="space-y-2">
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder="0x..."
+                    value={creditorAddress}
+                    onChange={(e) => setCreditorAddress(e.target.value)}
+                    className={`w-full px-4 py-3 text-sm border rounded-lg focus:outline-none focus:ring-2 focus:border-transparent pr-10 ${
+                      creditorAddress
+                        ? isAddress(creditorAddress)
+                          ? "border-green-300 focus:ring-green-500 bg-green-50"
+                          : "border-red-300 focus:ring-red-500 bg-red-50"
+                        : "border-gray-300 focus:ring-blue-500"
+                    }`}
+                    maxLength={42}
+                  />
+                  {creditorAddress && (
+                    <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                      {isAddress(creditorAddress) ? (
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                      ) : (
+                        <AlertCircle className="w-5 h-5 text-red-600" />
+                      )}
+                    </div>
+                  )}
+                </div>
+                {creditorAddress && !isAddress(creditorAddress) && (
+                  <p className="text-xs text-red-600">
+                    Invalid address. Must be a valid Ethereum address (0x...).
+                  </p>
+                )}
+                <div className="text-xs text-gray-500 space-y-1">
+                  <p>
+                    <strong>What is this?</strong> This is the address of the
+                    person or entity that will receive your Credit Note.
+                  </p>
+                  <p>
+                    <strong>Example:</strong> If you want to borrow money to buy
+                    something from a specific seller, enter their address here
+                    and the note will go directly to them.
+                  </p>
+                  <p>
+                    <strong>Important:</strong> Make sure the address is correct
+                    - the note will be non-transferable once created.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Borrow Amount Selector */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+                <Calculator className="w-4 h-4" />
+                <span>Select Borrow Amount</span>
+              </div>
+              <div className="space-y-3">
+                <div className="flex justify-between text-sm text-gray-600">
+                  <span>$0</span>
+                  <span className="font-semibold text-blue-600">
+                    ${borrowAmount[0].toLocaleString()}
+                  </span>
+                  <span>${maxBorrowableAmount.toLocaleString()}</span>
+                </div>
+                <Slider
+                  value={borrowAmount}
+                  onValueChange={setBorrowAmount}
+                  min={0}
+                  max={maxBorrowableAmount}
+                  step={50}
+                  className="w-full"
+                />
+                <p className="text-xs text-gray-500 text-center">
+                  Drag the slider to choose how much you want to borrow
+                </p>
+              </div>
             </div>
 
             {/* Interest Rate */}
@@ -220,29 +403,41 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
                 <div className="flex justify-between">
                   <span className="text-gray-600">Principal:</span>
                   <span className="font-medium">
-                    ${(maxAmount / ETH_PRICE_USD).toFixed(4)} CRD ($
-                    {maxAmount.toLocaleString()})
+                    {selectedAmount > 0
+                      ? `$${(selectedAmount / ETH_PRICE_USD).toFixed(
+                          4
+                        )} CRD ($${selectedAmount.toLocaleString()})`
+                      : "$0.0000 CRD ($0)"}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Interest:</span>
                   <span className="font-medium">
-                    ${interestAmount.toFixed(2)} (
-                    {(interestAmount / ETH_PRICE_USD).toFixed(4)} ETH)
+                    {selectedAmount > 0
+                      ? `$${interestAmount.toFixed(2)} (${(
+                          interestAmount / ETH_PRICE_USD
+                        ).toFixed(4)} ETH)`
+                      : "$0.00 (0.0000 ETH)"}
                   </span>
                 </div>
                 <div className="flex justify-between border-t pt-2">
                   <span className="font-medium">Total to Pay (ETH):</span>
                   <span className="font-bold">
-                    ${totalPayment.toFixed(2)} (
-                    {(totalPayment / ETH_PRICE_USD).toFixed(4)} ETH)
+                    {selectedAmount > 0
+                      ? `$${totalPayment.toFixed(2)} (${(
+                          totalPayment / ETH_PRICE_USD
+                        ).toFixed(4)} ETH)`
+                      : "$0.00 (0.0000 ETH)"}
                   </span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">Monthly Payment (ETH):</span>
                   <span className="font-medium">
-                    ${monthlyPayment.toFixed(2)} (
-                    {(monthlyPayment / ETH_PRICE_USD).toFixed(4)} ETH)
+                    {selectedAmount > 0
+                      ? `$${monthlyPayment.toFixed(2)} (${(
+                          monthlyPayment / ETH_PRICE_USD
+                        ).toFixed(4)} ETH)`
+                      : "$0.00 (0.0000 ETH)"}
                   </span>
                 </div>
               </div>
@@ -251,24 +446,33 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
             {/* Borrow Button */}
             <div className="pt-4">
               <Button
-                className="w-full h-14 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl"
-                onClick={() => {
-                  // TODO: Implement borrow functionality
-                  alert(
-                    `Borrowing ${(maxAmount / ETH_PRICE_USD).toFixed(
-                      4
-                    )} CRD at ${annualRate}% APR`
-                  );
-                }}
+                className="w-full h-14 text-lg font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-xl disabled:bg-gray-400 disabled:cursor-not-allowed"
+                disabled={
+                  !creditorAddress ||
+                  !isAddress(creditorAddress) ||
+                  selectedAmount <= 0
+                }
+                onClick={handleBorrow}
               >
                 <DollarSign className="w-5 h-5 mr-2" />
-                Borrow ${(maxAmount / ETH_PRICE_USD).toFixed(4)} CRD
+                {creditorAddress &&
+                isAddress(creditorAddress) &&
+                selectedAmount > 0
+                  ? `Borrow & Send ${(selectedAmount / ETH_PRICE_USD).toFixed(
+                      4
+                    )} CRD`
+                  : selectedAmount <= 0
+                  ? "Select Borrow Amount"
+                  : "Enter Creditor Address to Borrow"}
               </Button>
             </div>
 
             {/* Terms */}
             <div className="text-center text-sm text-gray-500 space-y-2 mt-auto">
               <p>• Receive CRD tokens immediately after approval</p>
+              <p>
+                • Credit Note is sent directly to the specified creditor address
+              </p>
               <p>• 3 monthly payments in ETH over 90 days</p>
               <p>
                 • Collateral required ({collateralPercentage}% of loan amount in

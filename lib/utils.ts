@@ -8,25 +8,25 @@ export function cn(...inputs: ClassValue[]) {
 
 // Toast notification utilities
 export const toast = {
-  success: (message: string, options?: any) => {
+  success: (message: string, options?: Record<string, unknown>) => {
     enqueueSnackbar(message, {
       variant: 'success',
       ...options,
     })
   },
-  error: (message: string, options?: any) => {
+  error: (message: string, options?: Record<string, unknown>) => {
     enqueueSnackbar(message, {
       variant: 'error',
       ...options,
     })
   },
-  info: (message: string, options?: any) => {
+  info: (message: string, options?: Record<string, unknown>) => {
     enqueueSnackbar(message, {
       variant: 'info',
       ...options,
     })
   },
-  warning: (message: string, options?: any) => {
+  warning: (message: string, options?: Record<string, unknown>) => {
     enqueueSnackbar(message, {
       variant: 'warning',
       ...options,
