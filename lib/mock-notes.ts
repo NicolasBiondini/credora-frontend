@@ -31,21 +31,7 @@ const generateRandomImage = () => {
   return images[Math.floor(Math.random() * images.length)];
 };
 
-// Calculate current value of a note based on time elapsed and interest
-const calculateCurrentValue = (note: MockNote): string => {
-  const createdAt = new Date(note.createdAt);
-  const now = new Date();
-  const daysElapsed = Math.floor((now.getTime() - createdAt.getTime()) / (1000 * 60 * 60 * 24));
-
-  const principalAmount = parseFloat(note.principalAmount);
-  const annualRate = parseFloat(note.interestRate) / 100;
-  const dailyRate = annualRate / 365;
-
-  const accruedInterest = principalAmount * dailyRate * daysElapsed;
-  const currentValue = principalAmount + accruedInterest;
-
-  return currentValue.toFixed(2);
-};
+// Note: calculateCurrentValue function removed as it's only needed for MyNotes display
 
 // Mock contract functions for borrowing only
 export const mockNoteIssuer = {
