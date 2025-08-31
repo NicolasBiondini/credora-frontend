@@ -15,8 +15,6 @@ import {
 import { useState, useEffect } from "react";
 import {
   useAccount,
-  usePublicClient,
-  useWalletClient,
   useReadContract,
 } from "wagmi";
 import { isAddress, parseEther } from "viem";
@@ -27,11 +25,9 @@ import { Button } from "@/components/ui/button";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import { Slider } from "@/components/ui/slider";
 import deployments from "@/contracts/deployments";
-import NoteIssuerAbi from "@/contracts/abi/NoteIssuer.abi";
-import { SAMPLE_PROOF } from "@/lib/sample-proof";
-import { toast } from "@/lib/utils";
-import PoolAbi from "@/contracts/abi/Pool.abi";
 import CRDVaultAbi from "@/contracts/abi/CRDVault.abi";
+import { toast } from "@/lib/utils";
+import { mockNoteIssuer, mockTransactionStatus } from "@/lib/mock-notes";
 
 // Utility functions
 const ETH_PRICE_USD = 4400; // Hardcoded ETH price
@@ -65,10 +61,9 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
 }) => {
   const router = useRouter();
   const { address } = useAccount();
-  const { data: walletClient } = useWalletClient();
-  const publicClient = usePublicClient();
   const [creditorAddress, setCreditorAddress] = useState("");
-  const [borrowAmount, setBorrowAmount] = useState<number[]>([0]); // Default to 0 USD worth
+  const [borrowAmount, setBorrowAmount] = useState<number[]>([5000]); // Default to 5,000 USD worth
+  const [mockLoading, setMockLoading] = useState(false);
   const { data: crdVaultTotalSupply } = useReadContract({
     address: deployments.crdVault,
     abi: CRDVaultAbi,
@@ -146,9 +141,9 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
 
   // Validate creditor address
 
-  // Handle borrow functionality
+  // Handle borrow functionality with mock system
   const handleBorrow = async () => {
-    if (!walletClient || !publicClient || !address) {
+    if (!address) {
       toast.error("Wallet not connected");
       return;
     }
@@ -158,49 +153,53 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
       return;
     }
 
+    if (selectedAmount <= 0) {
+      toast.error("Please select a borrow amount greater than 0");
+      return;
+    }
+
     try {
+      // Set loading state
+      setMockLoading(true);
+
+      // Show pending status
+      toast.info(mockTransactionStatus.pending);
+
       // Calculate amounts in wei - using selected amount instead of max
       const loanAmountWei = parseEther(selectedAmount.toString());
       const advanceAmountWei = parseEther(requiredCollateral.toString());
 
-      // Call createNote function with hardcoded proof
-      const txHash = await walletClient.writeContract({
-        address: deployments.noteIssuer,
-        abi: NoteIssuerAbi,
-        functionName: "createNote",
-        args: [
-          loanAmountWei, // amount
-          advanceAmountWei, // advanceAmount
-          SAMPLE_PROOF.pA, // _pA
-          SAMPLE_PROOF.pB, // _pB
-          SAMPLE_PROOF.pC, // _pC
-          SAMPLE_PROOF.pubSignals, // _pubSignals
-          creditorAddress, // creditor address
-        ],
-        value: advanceAmountWei, // Send the advance amount as ETH
-      });
+      console.log("🚀 Starting mock borrow transaction...");
+      console.log("💰 Loan Amount:", selectedAmount, "USD");
+      console.log("🔒 Collateral:", requiredCollateral, "ETH");
+      console.log("🏦 Creditor:", creditorAddress);
 
-      if (!txHash) {
-        console.error("Failed to create borrow transaction");
-        toast.error("Failed to create borrow transaction");
-        return;
-      }
+      // Use mock system instead of real blockchain call
+      const result = await mockNoteIssuer.createNote(
+        loanAmountWei,
+        advanceAmountWei,
+        creditorAddress,
+        address,
+        selectedAmount, // Real USD amount from slider
+        requiredCollateral, // Real ETH collateral amount
+        annualRate // Real interest rate from credit score
+      );
 
-      // Wait for transaction confirmation
-      const receipt = await publicClient.waitForTransactionReceipt({
-        hash: txHash,
-      });
+      // Show success with transaction details
+      toast.success(`🎉 Borrow successful! Note created with ID: #${result.noteId}`);
+      console.log("✅ Mock borrow successful!");
+      console.log("📄 Note ID:", result.noteId);
+      console.log("🔗 Mock TX Hash:", result.txHash);
 
-      if (receipt.status === "success") {
-        toast.success(`Borrow transaction successful! Note created.`);
-        console.log("Borrow successful, transaction hash:", txHash);
-      } else {
-        console.error("Borrow transaction failed", receipt);
-        toast.error("Borrow transaction failed");
-      }
+      // Reset form
+      setBorrowAmount([5000]);
+      setCreditorAddress("");
+
     } catch (error) {
-      console.error("Error during borrow:", error);
-      toast.error("Failed to borrow. Please try again.");
+      console.error("❌ Error during mock borrow:", error);
+      toast.error(mockTransactionStatus.failed);
+    } finally {
+      setMockLoading(false);
     }
   };
 
@@ -450,7 +449,8 @@ const BorrowCard: React.FC<BorrowCardProps> = ({
                 disabled={
                   !creditorAddress ||
                   !isAddress(creditorAddress) ||
-                  selectedAmount <= 0
+                  selectedAmount <= 0 ||
+                  mockLoading
                 }
                 onClick={handleBorrow}
               >
