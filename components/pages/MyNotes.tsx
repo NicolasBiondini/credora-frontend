@@ -27,22 +27,20 @@ const userNotes = [
   {
     id: "1",
     title: "ETH Lending Note #001",
-    amount: "2.5 ETH",
-    apy: "15.3%",
+    amount: "2.5 CRD",
+    apy: "7.3%",
     maturityDate: "2024-02-15",
     status: "Active",
-    image:
-      "https://images.unsplash.com/photo-1639322537228-f710d846310a?w=300&h=300&fit=crop",
+    image: "/good-score-nft.png",
   },
   {
     id: "2",
     title: "ETH Lending Note #002",
-    amount: "1.8 ETH",
-    apy: "15.3%",
+    amount: "1.8 CRD",
+    apy: "19.3%",
     maturityDate: "2024-02-20",
     status: "Active",
-    image:
-      "https://images.unsplash.com/photo-1614680376739-414d95ff43df?w=300&h=300&fit=crop",
+    image: "/bad-score-nft.png",
   },
 ];
 
